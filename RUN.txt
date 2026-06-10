@@ -1,0 +1,53 @@
+ReserveHub — como subir tudo
+
+=============================
+
+
+
+UM COMANDO (recomendado):
+
+  npm run start:all:seed
+
+
+
+  (Postgres + Rabbit + Mongo + seeds + backends Docker + frontend Vite)
+
+
+
+Variantes:
+
+  npm run start:all
+
+  npm run start:all -- --build
+
+  npm run start:all -- --integration
+
+  npm run stop:all
+
+
+
+Windows:
+
+  .\scripts\start-all.ps1 -seed
+
+
+
+Login: admin@reservehub.local / ReserveHub1!
+
+
+
+Portas: IAM 3001, core 3000, data 3002, audit 3003, Vite 5173, Rabbit UI 15672
+
+
+
+Relatórios 404 (/reports/cost-allocation):
+
+  npm run rebuild:core
+
+  No Windows o core corre localmente (porta 3000) para evitar rebuild Docker lento.
+  Logs: logs/core-dev.log
+
+
+
+Troubleshooting: README.md
+

@@ -1,0 +1,36 @@
+# Dependências
+node_modules/
+
+# Build / cache
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Ambiente local (nunca commitar secrets)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Logs e runtime
+logs/
+*.log
+npm-debug.log*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Testes / Playwright
+test-results/
+playwright-report/
+blob-report/
+
+# Prisma / Docker volumes locais
+postgres_data/
+mongo_data/

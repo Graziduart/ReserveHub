@@ -1,0 +1,118 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["core"]
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+
+  @@schema("core")
+}
+
+enum ReservationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("core")
+}
+
+model Department {
+  id             String     @id @default(uuid())
+  name           String
+  sigla          String     @unique
+  priority       Int        @default(0)
+  costCenterCode String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  active         Boolean    @default(true)
+  users          User[]
+  resources      Resource[]
+
+  @@map("departments")
+  @@schema("core")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  password     String
+  role         Role          @default(EMPLOYEE)
+  active       Boolean       @default(true)
+
+  departmentId String
+  department   Department    @relation(fields: [departmentId], references: [id])
+
+  reservations         Reservation[] @relation("ReservationRequester")
+  approvedReservations Reservation[] @relation("ReservationApprover")
+
+  @@map("users")
+  @@schema("core")
+}
+
+model Resource {
+  id               String        @id @default(uuid())
+  name             String
+  type             String
+  location         String
+  description      String?
+  capacity         Int?
+  category         String?
+  characteristics  String[]      @default([])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  active           Boolean       @default(true)
+  requiresApproval Boolean       @default(false)
+  costCenterCode   String?
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  reservations Reservation[]
+
+  @@index([departmentId])
+  @@map("resources")
+  @@schema("core")
+}
+
+model Reservation {
+  id           String            @id @default(uuid())
+  startDate    DateTime
+  endDate      DateTime
+  status       ReservationStatus @default(PENDING)
+  notes        String?
+  rejectReason String?
+  approvedAt   DateTime?
+  /** Níveis de aprovação necessários (1 = gestor apenas). */
+  approvalLevelRequired Int @default(1)
+  /** Estágio atual (0 = nenhum aprovador ainda). */
+  approvalStage         Int @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  userId String
+  user   User   @relation("ReservationRequester", fields: [userId], references: [id])
+
+  approvedById String?
+  approvedBy   User?   @relation("ReservationApprover", fields: [approvedById], references: [id])
+
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+
+  @@index([resourceId, startDate])
+  @@index([userId])
+  @@index([status])
+  @@map("reservations")
+  @@schema("core")
+}

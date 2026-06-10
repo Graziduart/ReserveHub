@@ -1,0 +1,174 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: reserveHub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reserveHub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: reserveHub-rabbit
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 8
+
+  mongo:
+    image: mongo:7
+    container_name: reserveHub-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  service-core:
+    build:
+      context: ./service-core
+      dockerfile: Dockerfile
+    container_name: reserveHub-core
+    restart: unless-stopped
+    profiles: ["backend", "full"]
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/reserveHub?schema=core
+      JWT_SECRET: reservehub-iam-docker-secret-change-me
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_EXCHANGE: reservehub.events
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  service-iam:
+    build:
+      context: ./service-iam
+      dockerfile: Dockerfile
+    container_name: reserveHub-iam
+    restart: unless-stopped
+    profiles: ["backend", "full"]
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/reserveHub?schema=iam
+      JWT_SECRET: reservehub-iam-docker-secret-change-me
+      JWT_ACCESS_EXPIRES_SEC: "900"
+      JWT_REFRESH_EXPIRES_DAYS: "7"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  service-audit:
+    build:
+      context: ./service-audit
+      dockerfile: Dockerfile
+    container_name: reserveHub-audit
+    restart: unless-stopped
+    profiles: ["backend", "full"]
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: "3003"
+      JWT_SECRET: reservehub-iam-docker-secret-change-me
+      MONGODB_URI: mongodb://mongo:27017/reservehub_audit
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_EXCHANGE: reservehub.events
+      RABBITMQ_AUDIT_QUEUE: audit.events
+      RABBITMQ_BINDING_PATTERN: core.#
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  service-data:
+    build:
+      context: ./service-data
+      dockerfile: Dockerfile
+    container_name: reserveHub-data
+    restart: unless-stopped
+    profiles: ["backend", "full"]
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: "3002"
+      JWT_SECRET: reservehub-iam-docker-secret-change-me
+      MONGODB_URI: mongodb://mongo:27017/reservehub_data
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_EXCHANGE: reservehub.events
+      RABBITMQ_DATA_QUEUE: data.events
+      RABBITMQ_BINDING_PATTERN: core.#
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_IAM: http://127.0.0.1:3001
+        VITE_API_CORE: http://127.0.0.1:3000
+        VITE_API_DATA: http://127.0.0.1:3002
+        VITE_API_AUDIT: http://127.0.0.1:3003
+    container_name: reserveHub-web
+    restart: unless-stopped
+    profiles: ["full"]
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:
+  mongo_data:

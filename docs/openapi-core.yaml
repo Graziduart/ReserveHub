@@ -1,0 +1,44 @@
+openapi: 3.0.3
+info:
+  title: ReserveHub Core API
+  version: 1.0.0
+  description: Departamentos, recursos, reservas e relatórios
+servers:
+  - url: http://127.0.0.1:3000
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+  /departments:
+    get:
+      summary: Listar departamentos
+    post:
+      summary: Criar departamento (ADMIN)
+  /resources:
+    get:
+      summary: Listar recursos
+    post:
+      summary: Criar recurso (ADMIN)
+  /reservations:
+    get:
+      summary: Listar reservas
+    post:
+      summary: Criar reserva
+  /reports/cost-allocation:
+    get:
+      summary: Relatório de custos (ADMIN/MANAGER)
+  /reports/utilization:
+    get:
+      summary: Utilização por recurso (ADMIN/MANAGER)
+  /reports/erp-export:
+    get:
+      summary: Export CSV ERP (ADMIN)
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

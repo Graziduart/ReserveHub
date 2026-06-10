@@ -1,0 +1,26 @@
+name: CD
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend images
+        run: docker compose --profile backend build
+
+      - name: Build frontend
+        run: |
+          npm ci --prefix frontend
+          npm run build --prefix frontend
+
+      - name: Summary
+        run: |
+          echo "Imagens Docker prontas para push ao registry."
+          echo "Configure secrets REGISTRY_URL e credenciais antes de deploy automático."
