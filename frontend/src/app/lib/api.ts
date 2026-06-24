@@ -30,12 +30,31 @@ export type LoginResponse = {
   user: ApiUser;
 };
 
+export type IdPConfig = {
+  enabled: boolean;
+  provider?: string;
+  issuer?: string;
+  authorizationUrl?: string | null;
+  passwordResetUrl?: string | null;
+  googleEnabled?: boolean;
+  googleClientId?: string | null;
+};
+
+/** Configuração do gestor de identidade (Keycloak, Entra ID, etc.). */
+export function getIdpConfig() {
+  return fetchJson<IdPConfig>(apiUrl('iam', '/auth/idp'));
+}
+
 /** Autentica no IAM, grava token e utilizador no `localStorage` e notifica a app. */
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const res = await fetchJson<LoginResponse>(apiUrl('iam', '/auth/login'), {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
+  return persistLoginSession(res);
+}
+
+function persistLoginSession(res: LoginResponse): LoginResponse {
   setStoredAccessToken(res.accessToken);
   if (res.refreshToken) {
     setStoredRefreshToken(res.refreshToken);
@@ -50,6 +69,15 @@ export async function login(email: string, password: string): Promise<LoginRespo
   });
   window.dispatchEvent(new Event(RESERVEHUB_AUTH_EVENT));
   return res;
+}
+
+/** Valida ID token do Google no IAM e grava sessão ReserveHub (JWT interno). */
+export async function loginWithGoogle(idToken: string): Promise<LoginResponse> {
+  const res = await fetchJson<LoginResponse>(apiUrl('iam', '/auth/google'), {
+    method: 'POST',
+    body: JSON.stringify({ idToken }),
+  });
+  return persistLoginSession(res);
 }
 
 /** Revoga refresh token no IAM (se existir) e limpa sessão local. */
@@ -165,6 +193,10 @@ export function listReservations() {
 
 export function listUsers() {
   return fetchJson<ApiUser[]>(apiUrl('iam', '/users'));
+}
+
+export function getCurrentUser() {
+  return fetchJson<ApiUser>(apiUrl('iam', '/users/me'));
 }
 
 export function listAuditEvents(limit = 100) {
@@ -298,9 +330,17 @@ export function checkReservationAvailability(
   endDate: string,
 ) {
   const q = new URLSearchParams({ resourceId, startDate, endDate });
-  return fetchJson<{ available: boolean; canOverridePending: boolean }>(
-    apiUrl('core', `/reservations/availability?${q}`),
-  );
+  return fetchJson<{
+    available: boolean;
+    canOverridePending: boolean;
+    blocked?: boolean;
+    conflicts?: Array<{
+      status: string;
+      startDate: string;
+      endDate: string;
+      solicitante: string;
+    }>;
+  }>(apiUrl('core', `/reservations/availability?${q}`));
 }
 
 export function createReservation(body: {
@@ -401,7 +441,7 @@ export function mapDepartment(
     nome: d.name,
     sigla: d.sigla,
     gestor: gestorLabel,
-    totalFuncionarios: userCount,
+    totalColaboradores: userCount,
     ativo: d.active,
     priority: d.priority ?? 50,
     costCenterCode: d.costCenterCode ?? undefined,
@@ -478,7 +518,7 @@ export function mapUser(u: ApiUser): Usuario {
       ? 'administrador'
       : u.role === 'MANAGER'
         ? 'gestor'
-        : 'funcionario';
+        : 'colaborador';
   return {
     id: u.id,
     nome: u.name,

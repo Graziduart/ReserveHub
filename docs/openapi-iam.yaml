@@ -2,21 +2,72 @@ openapi: 3.0.3
 info:
   title: ReserveHub IAM API
   version: 1.0.0
+  description: Autenticação, utilizadores e RBAC (ADMIN, MANAGER, EMPLOYEE).
 servers:
   - url: http://127.0.0.1:3001
 paths:
   /health:
     get:
+      tags: [Operações]
       summary: Health check
   /auth/login:
     post:
-      summary: Login
+      tags: [Autenticação]
+      summary: Login com e-mail e senha
+  /auth/google:
+    post:
+      tags: [Autenticação]
+      summary: Login com Google ID token
   /auth/refresh:
     post:
-      summary: Refresh token
+      tags: [Autenticação]
+      summary: Renovar access token
+  /auth/logout:
+    post:
+      tags: [Autenticação]
+      summary: Revogar refresh token
+  /auth/logout-all:
+    post:
+      tags: [Autenticação]
+      summary: Revogar todas as sessões do utilizador
+  /auth/idp:
+    get:
+      tags: [Autenticação]
+      summary: Configuração do gestor de identidade (OIDC/Keycloak/Google)
   /auth/forgot-password:
     post:
-      summary: Pedido de reset de password (stub)
+      tags: [Autenticação]
+      summary: Redireccionamento — recuperação via IdP corporativo
+  /auth/change-password:
+    post:
+      tags: [Autenticação]
+      summary: Alterar senha (utilizador autenticado)
+  /users/me:
+    get:
+      tags: [Utilizadores]
+      summary: Perfil do utilizador autenticado
   /users:
     get:
-      summary: Listar utilizadores (autenticado)
+      tags: [Utilizadores]
+      summary: Listar utilizadores (ADMIN ou MANAGER do departamento)
+    post:
+      tags: [Utilizadores]
+      summary: Criar utilizador (ADMIN)
+  /users/{id}:
+    get:
+      tags: [Utilizadores]
+      summary: Obter utilizador por ID
+    put:
+      tags: [Utilizadores]
+      summary: Actualizar utilizador
+    delete:
+      tags: [Utilizadores]
+      summary: Desactivar utilizador (ADMIN)
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []

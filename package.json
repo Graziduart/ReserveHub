@@ -18,7 +18,7 @@
     "smoke": "node scripts/smoke-integration.mjs",
     "reconcile:dashboard": "node scripts/reconcile-dashboard.mjs",
     "integration": "npm run verify && npm run smoke",
-    "test:all": "npm run build --prefix service-core && npm run build --prefix service-iam && npm run build --prefix service-audit && npm run build --prefix service-data && npm run test --prefix service-data && npm run test:e2e --prefix service-core && npm run test:e2e --prefix service-iam && npm run test:e2e --prefix service-audit && npm run test:e2e --prefix service-data",
+    "test:all": "npm run build --prefix service-core && npm run build --prefix service-iam && npm run build --prefix service-audit && npm run build --prefix service-data && npm run test --prefix service-core && npm run test --prefix service-iam && npm run test --prefix service-audit && npm run test --prefix service-data && npm run test:e2e --prefix service-core && npm run test:e2e --prefix service-iam && npm run test:e2e --prefix service-audit && npm run test:e2e --prefix service-data",
     "ci": "npm run test:all",
     "test:integration:db": "npm run test:e2e --prefix service-core -- --testPathPattern=integration",
     "dev:web": "npm run dev --prefix frontend",

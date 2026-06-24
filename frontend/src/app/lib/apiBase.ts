@@ -1,4 +1,9 @@
-import { circuitKeyFromUrl, withCircuit } from './circuitBreaker';
+import {
+  CircuitOpenError,
+  circuitKeyFromUrl,
+  circuitServiceLabel,
+  withCircuit,
+} from './circuitBreaker';
 
 export type ApiService = 'core' | 'iam' | 'data' | 'audit';
 
@@ -85,6 +90,7 @@ function isProtectedAuthUrl(url: string): boolean {
   if (isIamApiUrl(url)) {
     return (
       !url.includes('/auth/login') &&
+      !url.includes('/auth/google') &&
       !url.includes('/auth/refresh') &&
       !url.includes('/auth/logout')
     );
@@ -239,6 +245,12 @@ export function apiUrl(service: ApiService, path: string): string {
 
 /** Mensagem legível para erros HTTP da API. */
 export function formatApiError(err: unknown, serviceHint?: string): string {
+  if (err instanceof CircuitOpenError) {
+    const label = circuitServiceLabel(err.serviceKey);
+    const sec = Math.ceil(err.retryAfterMs / 1000);
+    return `O serviço ${label} está em pausa (circuit breaker aberto). Tente novamente em ${sec}s ou repõe o circuito em Health Checks.`;
+  }
+
   const status = (err as Error & { status?: number })?.status;
   const raw = err instanceof Error ? err.message : String(err);
 
@@ -257,6 +269,22 @@ export function formatApiError(err: unknown, serviceHint?: string): string {
     return 'Erro interno no servidor (500). Verifique se a base de dados está migrada (npm run setup:db).';
   }
   if (status === 403) {
+    try {
+      const body = JSON.parse(raw) as { message?: string | string[] };
+      const msg = Array.isArray(body.message) ? body.message.join(', ') : body.message;
+      if (msg?.includes('another department')) {
+        return 'Este recurso pertence a outro departamento e não pode ser reservado.';
+      }
+      if (
+        msg?.includes('Insufficient permissions') ||
+        msg?.includes('Insufficient role')
+      ) {
+        return 'Sem permissão para aceder a este recurso.';
+      }
+      if (msg) return msg;
+    } catch {
+      /* not json */
+    }
     return 'Sem permissão para esta operação.';
   }
   if (status === 409) {
@@ -268,6 +296,11 @@ export function formatApiError(err: unknown, serviceHint?: string): string {
       }
       if (msg?.includes('acronym already')) {
         return 'Já existe um departamento com esta sigla.';
+      }
+      if (msg?.includes('já está reservado') || msg?.includes('already booked')) {
+        return msg.includes('já está reservado')
+          ? msg
+          : 'Este recurso já está reservado neste horário. Escolha outro intervalo ou outro dia.';
       }
       if (msg) return msg;
     } catch {

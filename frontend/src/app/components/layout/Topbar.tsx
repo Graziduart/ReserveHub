@@ -25,7 +25,7 @@ function initialsFromName(name: string): string {
 function roleLabel(role: string): string {
   if (role === 'ADMIN') return 'Administrador';
   if (role === 'MANAGER') return 'Gestor';
-  if (role === 'EMPLOYEE') return 'Funcionário';
+  if (role === 'EMPLOYEE') return 'Colaborador';
   return role;
 }
 

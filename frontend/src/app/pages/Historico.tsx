@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import {
@@ -8,15 +9,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import { History, Search } from 'lucide-react';
+import { ClipboardList, History, Info, Search } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { toAuditTableRow } from '../lib/audit-display';
 import { AuditEventsTable } from '../components/audit/AuditEventsTable';
+import { currentAuthRole, canViewAudit } from '../lib/auth-roles';
 
 export function Historico() {
   const { registrosAuditoria } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('all');
+  const isColaborador = currentAuthRole() === 'EMPLOYEE';
+  const podeVerAuditoria = canViewAudit();
 
   const rows = useMemo(
     () => registrosAuditoria.map(toAuditTableRow),
@@ -68,62 +72,109 @@ export function Historico() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Histórico de Atividades</h1>
-        <p className="text-gray-600 mt-1">
-          Eventos de auditoria centralizados (Rabbit / serviço audit). Se vazio, confirme
-          que o service-audit está a correr na porta 3003.
-        </p>
+        {isColaborador ? (
+          <p className="text-gray-600 mt-1">
+            O histórico global de auditoria é restrito a gestores e administradores. Como
+            colaborador, acompanhe o estado das suas reservas na página{' '}
+            <Link to="/reservas" className="font-medium text-blue-600 hover:underline">
+              Reservas
+            </Link>
+            .
+          </p>
+        ) : (
+          <p className="text-gray-600 mt-1">
+            Eventos de auditoria centralizados (Rabbit / serviço audit). Se vazio, confirme
+            que o service-audit está a correr na porta 3003.
+          </p>
+        )}
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="Utilizador, ação, alvo, detalhes..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
+      {isColaborador && (
+        <Card className="border-blue-200 bg-blue-50/60">
+          <CardContent className="pt-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex gap-3">
+                <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900">Acesso limitado ao seu perfil</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Esta área regista ações de toda a organização (criação de reservas,
+                    aprovações, alterações de recursos). Colaboradores não consultam essa
+                    trilha por política de segurança (RBAC).
+                  </p>
+                  <p className="text-sm text-gray-600 mt-2">
+                    Para ver pedidos pendentes, aprovados ou rejeitados que você criou, use
+                    a lista de reservas.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/reservas"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                <ClipboardList className="w-4 h-4" />
+                Ir para Reservas
+              </Link>
             </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os tipos</SelectItem>
-                {tipos.map((tipo) => (
-                  <SelectItem key={tipo} value={tipo}>
-                    {tipoLabels[tipo] ?? tipo}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      {podeVerAuditoria && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Input
+                  placeholder="Utilizador, ação, alvo, detalhes..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os tipos</SelectItem>
+                  {tipos.map((tipo) => (
+                    <SelectItem key={tipo} value={tipo}>
+                      {tipoLabels[tipo] ?? tipo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <History className="w-5 h-5" />
-            Auditoria ({logsFiltrados.length})
+            {isColaborador ? 'Auditoria organizacional' : `Auditoria (${logsFiltrados.length})`}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <AuditEventsTable
-            rows={logsFiltrados}
+            rows={isColaborador ? [] : logsFiltrados}
             emptyMessage={
-              registrosAuditoria.length === 0
-                ? 'Nenhum evento de auditoria — confirme que o serviço audit está a correr.'
-                : 'Nenhuma atividade encontrada com os filtros actuais.'
+              isColaborador
+                ? 'Sem acesso à auditoria global. Consulte as suas reservas em Reservas.'
+                : registrosAuditoria.length === 0
+                  ? 'Nenhum evento de auditoria — confirme que o serviço audit está a correr.'
+                  : 'Nenhuma atividade encontrada com os filtros actuais.'
             }
           />
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {podeVerAuditoria && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="text-center">
@@ -160,6 +211,7 @@ export function Historico() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }

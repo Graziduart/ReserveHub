@@ -32,9 +32,11 @@ export class UserController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
-  async findAll(): Promise<UserResponseDto[]> {
-    return this.userService.findAll();
+  @Roles(Role.ADMIN, Role.MANAGER)
+  async findAll(
+    @Req() req: Request & { user: JwtUserPayload },
+  ): Promise<UserResponseDto[]> {
+    return this.userService.findAll(req.user);
   }
 
   @Get(':id')

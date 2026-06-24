@@ -1,0 +1,29 @@
+openapi: 3.0.3
+info:
+  title: ReserveHub Data API
+  version: 1.0.0
+  description: Agregados de dashboard consumidos via eventos RabbitMQ (MongoDB).
+servers:
+  - url: http://127.0.0.1:3002
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [Operações]
+      summary: Health check
+      security: []
+  /cards/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Resumo agregado (departamentos, recursos, reservas por status)
+  /cards/reconcile:
+    post:
+      tags: [Dashboard]
+      summary: Reconciliar agregados com contagens do core (ADMIN)
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

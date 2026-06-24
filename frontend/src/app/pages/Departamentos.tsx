@@ -33,7 +33,7 @@ function DepartamentosPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const handleSave = async (
-    data: Omit<Departamento, 'id' | 'gestor' | 'totalFuncionarios'>,
+    data: Omit<Departamento, 'id' | 'gestor' | 'totalColaboradores'>,
   ) => {
     try {
       if (editing) {
@@ -43,7 +43,7 @@ function DepartamentosPage() {
         await addDepartamento({
           ...data,
           gestor: '—',
-          totalFuncionarios: 0,
+          totalColaboradores: 0,
         });
         toast.success('Departamento criado');
       }
@@ -87,10 +87,10 @@ function DepartamentosPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {departamentos.map((dept) => {
-          const funcionarios = usuarios.filter(
+          const colaboradores = usuarios.filter(
             (u) => u.departmentId === dept.id || u.departamento === dept.nome,
           );
-          const funcionariosAtivos = funcionarios.filter((u) => u.ativo).length;
+          const colaboradoresAtivos = colaboradores.filter((u) => u.ativo).length;
 
           return (
             <Card key={dept.id} className="hover:shadow-lg transition-shadow">
@@ -128,7 +128,7 @@ function DepartamentosPage() {
                   <div>
                     <p className="text-sm text-gray-600">Colaboradores</p>
                     <p className="font-semibold text-gray-900">
-                      {funcionariosAtivos} ativos de {funcionarios.length}
+                      {colaboradoresAtivos} ativos de {colaboradores.length}
                     </p>
                   </div>
                 </div>

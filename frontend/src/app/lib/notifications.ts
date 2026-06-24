@@ -44,19 +44,61 @@ function linkFromRoutingKey(key: string): string | undefined {
   return '/auditoria';
 }
 
+function parseAuditPayload(reg: RegistroAuditoria): Record<string, unknown> | undefined {
+  if (!reg.payloadCompleto) return undefined;
+  try {
+    return JSON.parse(reg.payloadCompleto) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+function priorityOverrideNotifications(
+  registros: RegistroAuditoria[],
+  read: Set<string>,
+): Notificacao[] {
+  const auth = getStoredAuthUser();
+  if (!auth) return [];
+  const out: Notificacao[] = [];
+  for (const r of registros) {
+    if (!r.acao.includes('reservation.cancelled')) continue;
+    const p = parseAuditPayload(r);
+    if (!p?.supersededByPriority) continue;
+    const reservation = p.reservation as { user?: { email?: string } } | undefined;
+    const email = reservation?.user?.email;
+    if (email && email.toLowerCase() === auth.email.toLowerCase()) {
+      const id = `priority-override-${r.id}`;
+      out.push({
+        id,
+        titulo: 'A sua reserva foi substituída',
+        mensagem:
+          'Uma reserva pendente sua foi cancelada porque outro departamento com maior prioridade reservou o mesmo horário.',
+        tipo: 'alerta',
+        lida: read.has(id),
+        data: r.data,
+        link: '/reservas',
+      });
+    }
+  }
+  return out.slice(0, 10);
+}
+
 function notificationsFromAudit(
   registros: RegistroAuditoria[],
   read: Set<string>,
 ): Notificacao[] {
-  return registros.slice(0, 40).map((r) => ({
-    id: r.id,
-    titulo: labelForRoutingKey(r.acao),
-    mensagem: r.detalhes.length > 160 ? `${r.detalhes.slice(0, 160)}…` : r.detalhes,
-    tipo: tipoFromRoutingKey(r.acao),
-    lida: read.has(r.id),
-    data: r.data,
-    link: linkFromRoutingKey(r.acao),
-  }));
+  return registros.slice(0, 40).map((r) => {
+    const payload = parseAuditPayload(r);
+    return {
+      id: r.id,
+      titulo: labelForRoutingKey(r.acao, payload),
+      mensagem: r.detalhes.length > 160 ? `${r.detalhes.slice(0, 160)}…` : r.detalhes,
+      tipo: tipoFromRoutingKey(r.acao),
+      lida: read.has(r.id),
+      data: r.data,
+      link: linkFromRoutingKey(r.acao),
+    };
+  });
 }
 
 function pendingApprovalNotifications(
@@ -119,7 +161,7 @@ function myReservationNotifications(
   return out.slice(0, 15);
 }
 
-/** Notificações derivadas de auditoria + estado das reservas (sem mock). */
+/** Notificações in-app derivadas de auditoria, reservas e governança (sem mock). */
 export function buildNotifications(
   registrosAuditoria: RegistroAuditoria[],
   reservas: Reserva[],
@@ -128,8 +170,9 @@ export function buildNotifications(
   const fromAudit = notificationsFromAudit(registrosAuditoria, read);
   const pending = pendingApprovalNotifications(reservas, read);
   const mine = myReservationNotifications(reservas, read);
+  const priority = priorityOverrideNotifications(registrosAuditoria, read);
 
-  const merged = [...pending, ...mine, ...fromAudit];
+  const merged = [...pending, ...priority, ...mine, ...fromAudit];
   const seen = new Set<string>();
   return merged.filter((n) => {
     if (seen.has(n.id)) return false;

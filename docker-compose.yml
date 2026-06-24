@@ -86,6 +86,7 @@ services:
       JWT_SECRET: reservehub-iam-docker-secret-change-me
       JWT_ACCESS_EXPIRES_SEC: "900"
       JWT_REFRESH_EXPIRES_DAYS: "7"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

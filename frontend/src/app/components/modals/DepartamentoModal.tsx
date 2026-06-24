@@ -20,7 +20,7 @@ interface DepartamentoModalProps {
   open: boolean;
   onClose: () => void;
   onSave: (
-    dept: Omit<Departamento, 'id' | 'gestor' | 'totalFuncionarios'>,
+    dept: Omit<Departamento, 'id' | 'gestor' | 'totalColaboradores'>,
   ) => Promise<void>;
   departamento?: Departamento;
   departamentos: Pick<Departamento, 'id' | 'nome'>[];
@@ -139,7 +139,7 @@ export function DepartamentoModal({
             />
           </div>
           <p className="text-xs text-gray-500">
-            Maior prioridade resolve conflitos com reservas pendentes de outros departamentos.
+            Prioridade interna do departamento (0–100) para governança e relatórios.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

@@ -12,6 +12,7 @@ import {
   Bell,
   Shield,
   PieChart,
+  Activity,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { cn } from '../../lib/utils';
@@ -20,6 +21,7 @@ import {
   canManageDepartments,
   canManageUsers,
   canViewCostReports,
+  canViewHealthChecks,
   currentAuthRole,
 } from '../../lib/auth-roles';
 
@@ -50,6 +52,12 @@ const menuItems = [
     path: '/relatorios',
     roles: ['ADMIN', 'MANAGER'],
   },
+  {
+    icon: Activity,
+    label: 'Health Checks',
+    path: '/health',
+    roles: ['ADMIN'],
+  },
 ];
 
 function canSeeItem(roles: string[] | null): boolean {
@@ -69,6 +77,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
     if (item.path === '/auditoria' || item.path === '/relatorios') {
       return canViewCostReports();
     }
+    if (item.path === '/health') return canViewHealthChecks();
     return canSeeItem(item.roles);
   });
 

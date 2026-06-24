@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma, Role } from '@prisma/client';
+import { Role, type Prisma } from '@prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
 import { hashPassword } from '../shared/crypto/password-hash';
 import type { JwtUserPayload } from '../auth/jwt-user.payload';
@@ -41,8 +41,12 @@ export class UserService {
     return this.toDto(row);
   }
 
-  async findAll(): Promise<UserResponseDto[]> {
+  async findAll(actor: JwtUserPayload): Promise<UserResponseDto[]> {
     const rows = await this.prisma.user.findMany({
+      where:
+        actor.role === Role.MANAGER
+          ? { departmentId: actor.departmentId }
+          : undefined,
       orderBy: { name: 'asc' },
     });
     return rows.map((r) => this.toDto(r));

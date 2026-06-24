@@ -12,13 +12,47 @@ import { Input } from '../ui/Input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Reserva } from '../../data/types';
+import { Card, CardContent } from '../ui/Card';
+import { Badge } from '../ui/badge';
+import { CalendarX2, Loader2 } from 'lucide-react';
+import { Recurso, Reserva, Usuario } from '../../data/types';
 import { useApp } from '../../context/AppContext';
 import { getStoredAuthUser } from '../../lib/apiBase';
 import { checkReservationAvailability } from '../../lib/api';
 import { currentAuthRole } from '../../lib/auth-roles';
 import { hasValidDepartment } from '../../lib/department-utils';
 import { toast } from 'sonner';
+
+type ReservaBloqueio = {
+  recursoNome: string;
+  pedido: string;
+  conflitos: Array<{
+    status: string;
+    startDate: string;
+    endDate: string;
+    solicitante: string;
+  }>;
+  /** Aviso de prioridade departamental — permite submeter mesmo com conflitos pendentes inferiores. */
+  avisoPrioridade?: string;
+};
+
+function formatIntervalo(isoStart: string, isoEnd: string): string {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleString('pt-PT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  return `${fmt(isoStart)} – ${fmt(isoEnd)}`;
+}
+
+function statusReservaLabel(status: string): string {
+  if (status === 'APPROVED' || status === 'approved') return 'Aprovada';
+  if (status === 'PENDING' || status === 'pending') return 'Pendente';
+  return status;
+}
 
 interface ReservaModalProps {
   open: boolean;
@@ -27,8 +61,43 @@ interface ReservaModalProps {
   reserva?: Reserva;
 }
 
+function canBookResource(
+  recurso: Pick<Recurso, 'departmentId' | 'disponivel'>,
+  solicitante: Pick<Usuario, 'departmentId'> | null,
+): boolean {
+  if (!recurso.disponivel || !solicitante?.departmentId) return false;
+  if (!recurso.departmentId) return true;
+  return recurso.departmentId === solicitante.departmentId;
+}
+
+function resolveSolicitante(
+  solicitanteId: string,
+  usuarios: Usuario[],
+  departamentos: { id: string; nome: string }[],
+): Usuario | null {
+  const fromList = usuarios.find((u) => u.id === solicitanteId);
+  if (fromList) return fromList;
+
+  const auth = getStoredAuthUser();
+  if (auth?.id !== solicitanteId || !auth.departmentId) return null;
+
+  const deptNome = departamentos.find((d) => d.id === auth.departmentId)?.nome?.trim();
+  if (!deptNome) return null;
+
+  return {
+    id: auth.id,
+    nome: auth.name,
+    email: auth.email,
+    departmentId: auth.departmentId,
+    departamento: deptNome,
+    cargo: 'Colaborador',
+    perfil: 'colaborador',
+    ativo: true,
+  };
+}
+
 export function ReservaModal({ open, onClose, onSave, reserva }: ReservaModalProps) {
-  const { recursos, usuarios } = useApp();
+  const { recursos, usuarios, departamentos } = useApp();
 
   const [formData, setFormData] = useState({
     recursoId: '',
@@ -39,8 +108,8 @@ export function ReservaModal({ open, onClose, onSave, reserva }: ReservaModalPro
     motivo: '',
   });
 
-  const [conflito, setConflito] = useState<string | null>(null);
-  const [canOverridePending, setCanOverridePending] = useState(false);
+  const [bloqueio, setBloqueio] = useState<ReservaBloqueio | null>(null);
+  const [checkingConflict, setCheckingConflict] = useState(false);
 
   useEffect(() => {
     if (reserva) {
@@ -63,46 +132,72 @@ export function ReservaModal({ open, onClose, onSave, reserva }: ReservaModalPro
         motivo: '',
       });
     }
-    setConflito(null);
-    setCanOverridePending(false);
+    setBloqueio(null);
+    setCheckingConflict(false);
   }, [reserva, open]);
 
-  const checkConflito = async () => {
+  const checkConflito = async (): Promise<boolean> => {
     if (!formData.recursoId || !formData.data || !formData.horaInicio || !formData.horaFim) {
-      setConflito(null);
-      setCanOverridePending(false);
-      return;
+      setBloqueio(null);
+      return true;
     }
     const hi = formData.horaInicio.length === 5 ? `${formData.horaInicio}:00` : formData.horaInicio;
     const hf = formData.horaFim.length === 5 ? `${formData.horaFim}:00` : formData.horaFim;
     const startDate = new Date(`${formData.data}T${hi}`).toISOString();
     const endDate = new Date(`${formData.data}T${hf}`).toISOString();
+    const recursoNome =
+      recursos.find((r) => r.id === formData.recursoId)?.nome ?? 'Recurso selecionado';
+    setCheckingConflict(true);
     try {
       const r = await checkReservationAvailability(
         formData.recursoId,
         startDate,
         endDate,
       );
-      if (!r.available) {
-        setCanOverridePending(!!r.canOverridePending);
-        setConflito(
-          r.canOverridePending
-            ? 'Existe conflito, mas o seu departamento pode substituir reservas pendentes de menor prioridade.'
-            : 'Horário indisponível para este recurso.',
-        );
-      } else {
-        setConflito(null);
-        setCanOverridePending(false);
+      if (!r.available && !r.canOverridePending && r.conflicts && r.conflicts.length > 0) {
+        setBloqueio({
+          recursoNome,
+          pedido: formatIntervalo(startDate, endDate),
+          conflitos: r.conflicts,
+        });
+        return false;
       }
+      if (r.canOverridePending && r.conflicts && r.conflicts.length > 0) {
+        setBloqueio({
+          recursoNome,
+          pedido: formatIntervalo(startDate, endDate),
+          conflitos: r.conflicts,
+          avisoPrioridade:
+            'Existem reservas pendentes de departamentos com menor prioridade. Ao confirmar, serão canceladas automaticamente.',
+        });
+        return true;
+      }
+      if (!r.available) {
+        setBloqueio({
+          recursoNome,
+          pedido: formatIntervalo(startDate, endDate),
+          conflitos: [],
+        });
+        return false;
+      }
+      setBloqueio(null);
+      return true;
     } catch {
-      setConflito(null);
-      setCanOverridePending(false);
+      setBloqueio(null);
+      return true;
+    } finally {
+      setCheckingConflict(false);
     }
   };
 
-  const usuariosComDepartamento = usuarios.filter(
-    (u) => u.ativo && hasValidDepartment(u),
-  );
+  const authUser = getStoredAuthUser();
+  const usuariosComDepartamento = usuarios.filter((u) => {
+    if (!u.ativo || !hasValidDepartment(u)) return false;
+    if (currentAuthRole() === 'MANAGER' && authUser?.departmentId) {
+      return u.departmentId === authUser.departmentId;
+    }
+    return true;
+  });
 
   const solicitanteAtual = (() => {
     const auth = getStoredAuthUser();
@@ -110,21 +205,40 @@ export function ReservaModal({ open, onClose, onSave, reserva }: ReservaModalPro
       currentAuthRole() === 'EMPLOYEE'
         ? auth?.id ?? formData.solicitanteId
         : formData.solicitanteId;
-    return usuarios.find((u) => u.id === id);
+    return resolveSolicitante(id, usuarios, departamentos);
   })();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const recursosReservaveis = recursos.filter((r) =>
+    currentAuthRole() === 'ADMIN'
+      ? r.disponivel
+      : canBookResource(r, solicitanteAtual),
+  );
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const recurso = recursos.find((r) => r.id === formData.recursoId);
+    const disponivel = await checkConflito();
+    if (!disponivel) {
+      toast.error('Horário indisponível — já existe reserva para este recurso.');
+      return;
+    }
+
+    const recurso = recursosReservaveis.find((r) => r.id === formData.recursoId);
     const auth = getStoredAuthUser();
     const solicitanteId =
       currentAuthRole() === 'EMPLOYEE'
         ? auth?.id ?? formData.solicitanteId
         : formData.solicitanteId;
-    const solicitante = usuarios.find((u) => u.id === solicitanteId);
+    const solicitante = resolveSolicitante(solicitanteId, usuarios, departamentos);
 
-    if (!recurso || !solicitante) return;
+    if (!recurso) {
+      toast.error('Selecione um recurso válido.');
+      return;
+    }
+    if (!solicitante) {
+      toast.error('Não foi possível identificar o solicitante. Tente entrar novamente.');
+      return;
+    }
 
     if (!hasValidDepartment(solicitante)) {
       toast.error(
@@ -175,13 +289,21 @@ export function ReservaModal({ open, onClose, onSave, reserva }: ReservaModalPro
                 <SelectValue placeholder="Selecione um recurso" />
               </SelectTrigger>
               <SelectContent>
-                {recursos.filter((r) => r.disponivel).map((recurso) => (
+                {recursosReservaveis.map((recurso) => (
                   <SelectItem key={recurso.id} value={recurso.id}>
                     {recurso.nome} - {recurso.tipo}
+                    {recurso.requiresApproval || currentAuthRole() === 'EMPLOYEE'
+                      ? ' (requer aprovação)'
+                      : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {recursosReservaveis.length === 0 && (
+              <p className="text-sm text-amber-700">
+                Nenhum recurso disponível para o seu departamento. Contacte o administrador.
+              </p>
+            )}
           </div>
 
           {currentAuthRole() !== 'EMPLOYEE' && (
@@ -278,16 +400,101 @@ export function ReservaModal({ open, onClose, onSave, reserva }: ReservaModalPro
             </div>
           </div>
 
-          {conflito && (
-            <div
-              className={`p-3 border rounded-lg text-sm ${
-                canOverridePending
-                  ? 'bg-amber-50 border-amber-200 text-amber-900'
-                  : 'bg-red-50 border-red-200 text-red-800'
-              }`}
+          {checkingConflict && (
+            <Card className="border-blue-200 bg-blue-50/50">
+              <CardContent className="flex items-center gap-3 p-4 py-4">
+                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-blue-600" />
+                <p className="text-sm text-blue-800">A verificar disponibilidade do recurso…</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {bloqueio && !checkingConflict && (
+            <Card
+              className={
+                bloqueio.avisoPrioridade
+                  ? 'border-amber-300 bg-amber-50 shadow-sm overflow-hidden'
+                  : 'border-red-300 bg-red-50 shadow-sm overflow-hidden'
+              }
             >
-              {conflito}
-            </div>
+              <CardContent className="p-0">
+                <div
+                  className={`flex gap-3 border-l-4 p-4 ${
+                    bloqueio.avisoPrioridade ? 'border-amber-500' : 'border-red-500'
+                  }`}
+                >
+                  <div
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                      bloqueio.avisoPrioridade ? 'bg-amber-100' : 'bg-red-100'
+                    }`}
+                  >
+                    <CalendarX2
+                      className={`h-5 w-5 ${
+                        bloqueio.avisoPrioridade ? 'text-amber-600' : 'text-red-600'
+                      }`}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div>
+                      <p
+                        className={`font-semibold ${
+                          bloqueio.avisoPrioridade ? 'text-amber-900' : 'text-red-900'
+                        }`}
+                      >
+                        {bloqueio.avisoPrioridade
+                          ? 'Prioridade de departamento'
+                          : 'Reserva bloqueada'}
+                      </p>
+                      <p
+                        className={`mt-1 text-sm ${
+                          bloqueio.avisoPrioridade ? 'text-amber-800' : 'text-red-800'
+                        }`}
+                      >
+                        {bloqueio.avisoPrioridade ?? (
+                          <>
+                            O recurso <span className="font-medium">{bloqueio.recursoNome}</span>{' '}
+                            já está ocupado no horário que escolheu ({bloqueio.pedido}). Alguém
+                            reservou antes — escolha outro intervalo ou outro dia.
+                          </>
+                        )}
+                      </p>
+                    </div>
+
+                    {bloqueio.conflitos.length > 0 && (
+                      <div className="space-y-2 rounded-lg border border-red-200 bg-white/80 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                          Reserva existente
+                        </p>
+                        {bloqueio.conflitos.map((c, i) => (
+                          <div
+                            key={`${c.startDate}-${i}`}
+                            className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                          >
+                            <div className="text-gray-800">
+                              <span className="font-medium">{c.solicitante}</span>
+                              <span className="mx-1.5 text-gray-400">·</span>
+                              <span className="text-gray-600">
+                                {formatIntervalo(c.startDate, c.endDate)}
+                              </span>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={
+                                c.status === 'APPROVED' || c.status === 'approved'
+                                  ? 'border-green-300 bg-green-50 text-green-800'
+                                  : 'border-amber-300 bg-amber-50 text-amber-800'
+                              }
+                            >
+                              {statusReservaLabel(c.status)}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           <div className="space-y-2">
@@ -309,7 +516,8 @@ export function ReservaModal({ open, onClose, onSave, reserva }: ReservaModalPro
             <Button
               type="submit"
               disabled={
-                (!!conflito && !canOverridePending) ||
+                (!!bloqueio && !bloqueio.avisoPrioridade) ||
+                checkingConflict ||
                 !solicitanteAtual ||
                 !hasValidDepartment(solicitanteAtual)
               }

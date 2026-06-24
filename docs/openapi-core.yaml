@@ -2,40 +2,131 @@ openapi: 3.0.3
 info:
   title: ReserveHub Core API
   version: 1.0.0
-  description: Departamentos, recursos, reservas e relatórios
+  description: |
+    API de negócio — departamentos, recursos, reservas, disponibilidade com prioridade
+    departamental e relatórios de governança.
 servers:
   - url: http://127.0.0.1:3000
+    description: Desenvolvimento local
 security:
   - bearerAuth: []
 paths:
   /health:
     get:
+      tags: [Operações]
       summary: Health check
       security: []
+      responses:
+        '200':
+          description: Serviço disponível
   /departments:
     get:
-      summary: Listar departamentos
+      tags: [Departamentos]
+      summary: Listar departamentos activos
     post:
+      tags: [Departamentos]
       summary: Criar departamento (ADMIN)
+  /departments/{id}:
+    get:
+      tags: [Departamentos]
+      summary: Obter departamento por ID
+    put:
+      tags: [Departamentos]
+      summary: Actualizar departamento (ADMIN)
+    delete:
+      tags: [Departamentos]
+      summary: Desactivar departamento (ADMIN)
   /resources:
     get:
+      tags: [Recursos]
       summary: Listar recursos
     post:
+      tags: [Recursos]
       summary: Criar recurso (ADMIN)
+  /resources/{id}:
+    get:
+      tags: [Recursos]
+      summary: Obter recurso por ID
+    put:
+      tags: [Recursos]
+      summary: Actualizar recurso (ADMIN)
+    delete:
+      tags: [Recursos]
+      summary: Desactivar recurso (ADMIN)
   /reservations:
     get:
-      summary: Listar reservas
+      tags: [Reservas]
+      summary: Listar reservas (filtros por recurso, status, período)
     post:
-      summary: Criar reserva
+      tags: [Reservas]
+      summary: Criar reserva (com regras de conflito e prioridade departamental)
+  /reservations/availability:
+    get:
+      tags: [Reservas]
+      summary: Consultar disponibilidade e possibilidade de sobrepor pendentes
+      parameters:
+        - name: resourceId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: startDate
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: endDate
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Disponibilidade avaliada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean }
+                  canOverridePending: { type: boolean }
+                  blocked: { type: boolean }
+                  conflicts:
+                    type: array
+                    items:
+                      type: object
+  /reservations/{id}:
+    get:
+      tags: [Reservas]
+      summary: Detalhe da reserva
+    put:
+      tags: [Reservas]
+      summary: Actualizar reserva pendente (horário/notas)
+  /reservations/{id}/approve:
+    post:
+      tags: [Reservas]
+      summary: Aprovar reserva pendente (ADMIN/MANAGER do departamento)
+  /reservations/{id}/reject:
+    post:
+      tags: [Reservas]
+      summary: Rejeitar reserva pendente
+  /reservations/{id}/cancel:
+    post:
+      tags: [Reservas]
+      summary: Cancelar reserva pendente ou aprovada
+  /reports/reservations-by-department:
+    get:
+      tags: [Relatórios]
+      summary: Reservas agrupadas por departamento
   /reports/cost-allocation:
     get:
-      summary: Relatório de custos (ADMIN/MANAGER)
+      tags: [Relatórios]
+      summary: Alocação de custos por departamento/recurso (ADMIN/MANAGER)
   /reports/utilization:
     get:
-      summary: Utilização por recurso (ADMIN/MANAGER)
+      tags: [Relatórios]
+      summary: Utilização de recursos (ADMIN/MANAGER)
   /reports/erp-export:
     get:
-      summary: Export CSV ERP (ADMIN)
+      tags: [Relatórios]
+      summary: Exportação CSV para ERP (ADMIN)
 components:
   securitySchemes:
     bearerAuth:

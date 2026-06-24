@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { Public } from './public.decorator';
 import { AuthService } from './auth.service';
@@ -6,6 +6,7 @@ import { LoginDto } from './dtos/login.dto';
 import { RefreshDto } from './dtos/refresh.dto';
 import { ChangePasswordDto } from './dtos/change-password.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
+import { GoogleLoginDto } from './dtos/google-login.dto';
 import type { JwtUserPayload } from './jwt-user.payload';
 
 @Controller('auth')
@@ -16,6 +17,12 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
+  }
+
+  @Public()
+  @Post('google')
+  googleLogin(@Body() dto: GoogleLoginDto) {
+    return this.auth.loginWithGoogle(dto.idToken);
   }
 
   @Public()
@@ -35,10 +42,17 @@ export class AuthController {
     return this.auth.logoutAll(req.user.sub);
   }
 
+  /** Recuperação de senha é responsabilidade do IdP corporativo (ver docs/IDENTITY.md). */
+  @Public()
+  @Get('idp')
+  idpConfig() {
+    return this.auth.getIdpConfig();
+  }
+
   @Public()
   @Post('forgot-password')
-  forgotPassword(@Body() dto: ForgotPasswordDto) {
-    return this.auth.forgotPassword(dto.email);
+  forgotPassword(@Body() _dto: ForgotPasswordDto) {
+    return this.auth.forgotPassword();
   }
 
   @Post('change-password')

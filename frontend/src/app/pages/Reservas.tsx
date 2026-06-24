@@ -9,6 +9,8 @@ import { useApp } from '../context/AppContext';
 import { ReservaModal } from '../components/modals/ReservaModal';
 import { Reserva, StatusReserva } from '../data/types';
 import { toast } from 'sonner';
+import { formatApiError } from '../lib/apiBase';
+import { canCancelReservation, cancelDeadlineMessage } from '../lib/reservation-rules';
 import {
   Dialog,
   DialogContent,
@@ -66,7 +68,7 @@ export function Reservas() {
         toast.success('Reserva criada com sucesso! Aguardando aprovação.');
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao guardar reserva');
+      toast.error(formatApiError(e, 'servidor core') || 'Erro ao guardar reserva');
     }
     setEditingReserva(undefined);
   };
@@ -194,15 +196,29 @@ export function Reservas() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {reserva.status === 'pending' && (
+                        {(reserva.status === 'pending' || reserva.status === 'approved') && (
                           <>
-                            <Button variant="ghost" size="sm" onClick={() => handleEdit(reserva)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
+                            {reserva.status === 'pending' && (
+                              <Button variant="ghost" size="sm" onClick={() => handleEdit(reserva)}>
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDelete(reserva.id)}
+                              disabled={!canCancelReservation(reserva)}
+                              title={
+                                canCancelReservation(reserva)
+                                  ? 'Cancelar reserva'
+                                  : cancelDeadlineMessage()
+                              }
+                              onClick={() => {
+                                if (!canCancelReservation(reserva)) {
+                                  toast.error(cancelDeadlineMessage());
+                                  return;
+                                }
+                                handleDelete(reserva.id);
+                              }}
                             >
                               <Trash2 className="w-4 h-4 text-red-600" />
                             </Button>
@@ -321,7 +337,8 @@ export function Reservas() {
           <AlertDialogHeader>
             <AlertDialogTitle>Cancelar Reserva?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação irá cancelar a reserva. Esta ação não pode ser desfeita.
+              Esta ação irá cancelar a reserva. Só é permitido cancelar até 1 hora antes do
+              início. Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

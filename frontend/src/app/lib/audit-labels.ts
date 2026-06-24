@@ -14,7 +14,10 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'core.reservation.cancelled': 'Reserva cancelada',
 };
 
-export function labelForRoutingKey(key: string): string {
+export function labelForRoutingKey(key: string, payload?: Record<string, unknown>): string {
+  if (key.includes('reservation.cancelled') && payload?.supersededByPriority) {
+    return 'Reserva cancelada por prioridade de departamento';
+  }
   return AUDIT_ACTION_LABELS[key] ?? key;
 }
 

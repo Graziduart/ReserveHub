@@ -12,6 +12,7 @@ import { Historico } from './pages/Historico';
 import { Notificacoes } from './pages/Notificacoes';
 import { Auditoria } from './pages/Auditoria';
 import { Relatorios } from './pages/Relatorios';
+import { HealthChecks } from './pages/HealthChecks';
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: 'notificacoes', Component: Notificacoes },
       { path: 'auditoria', Component: Auditoria },
       { path: 'relatorios', Component: Relatorios },
+      { path: 'health', Component: HealthChecks },
     ],
   },
 ]);

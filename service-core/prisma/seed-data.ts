@@ -123,7 +123,7 @@ export const DEMO_RESOURCES: DemoResource[] = [
     name: 'Sala de Formação RH',
     type: 'Sala',
     location: '2º Andar — RH',
-    requiresApproval: false,
+    requiresApproval: true,
     costCenterCode: 'CC-RH-SALAS',
     departmentSigla: 'RH',
   },

@@ -117,6 +117,10 @@ export function formatAuditSummary(
   const reason = pickString(payload.reason, payload.rejectReason, reservation?.rejectReason);
   if (reason) parts.push(`Motivo: ${reason}`);
 
+  if (payload.supersededByPriority === true) {
+    parts.push('Substituída por departamento com maior prioridade');
+  }
+
   const notes = pickString(reservation?.notes);
   if (notes) parts.push(notes.length > 80 ? `${notes.slice(0, 80)}…` : notes);
 
@@ -145,12 +149,20 @@ export type AuditTableRow = {
 };
 
 export function toAuditTableRow(record: RegistroAuditoria): AuditTableRow {
+  let payload: Record<string, unknown> | undefined;
+  if (record.payloadCompleto) {
+    try {
+      payload = JSON.parse(record.payloadCompleto) as Record<string, unknown>;
+    } catch {
+      payload = undefined;
+    }
+  }
   return {
     id: record.id,
     data: record.data,
     utilizador: record.utilizador,
     acao: record.acao,
-    acaoLabel: labelForRoutingKey(record.acao),
+    acaoLabel: labelForRoutingKey(record.acao, payload),
     tipo: routingKeyToLogTipo(record.acao),
     alvo: record.entidade,
     entidadeId: record.entidadeId,

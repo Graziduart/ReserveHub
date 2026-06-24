@@ -27,7 +27,7 @@ npm run stop:all
 
 Abre **http://localhost:5173/** — login `admin@reservehub.local` / `ReserveHub1!`
 
-Ver também [RUN.txt](RUN.txt).
+Ver também [RUN.txt](RUN.txt) e [docs/IDENTITY.md](docs/IDENTITY.md) (IdP / SSO / recuperação de senha).
 
 ## Credenciais demo (após seed)
 
@@ -38,10 +38,10 @@ Password padrão: `ReserveHub1!` (ou `SEED_DEMO_PASSWORD`)
 | admin@reservehub.local | ADMIN |
 | gestor.rh@reservehub.local | MANAGER |
 | gestor.ti@reservehub.local | MANAGER |
-| ana.silva@reservehub.local | EMPLOYEE |
-| bruno.costa@reservehub.local | EMPLOYEE |
-| carla.mendes@reservehub.local | EMPLOYEE |
-| diego.santos@reservehub.local | EMPLOYEE |
+| ana.silva@reservehub.local | Colaborador |
+| bruno.costa@reservehub.local | Colaborador |
+| carla.mendes@reservehub.local | Colaborador |
+| diego.santos@reservehub.local | Colaborador |
 
 ## Scripts
 
@@ -85,5 +85,6 @@ O `setup-database.mjs` remove registos falhados de migrações IAM no schema cor
 - Prioridade de departamento em conflitos de reservas pendentes
 - Centro de custo em departamentos e recursos
 - Aprovação com `approvedById` e RBAC
+- Cancelamento com prazo mínimo de 1 hora antes do início (RN-04)
 - Auditoria via Rabbit (`core.#`)
 - Relatório `GET /reports/cost-allocation` (ADMIN/MANAGER)

@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CalendarDays, Clock, Filter, LayoutGrid, List } from 'lucide-react';
+import { CalendarDays, Clock, Filter, LayoutGrid, List, Timer } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
   ReservationCalendar,
   ReservationDayPanel,
 } from '../components/agenda/ReservationCalendar';
+import { ResourceAvailabilityTimeline } from '../components/agenda/ResourceAvailabilityTimeline';
 import { Card, CardContent } from '../components/ui/Card';
 import { Badge } from '../components/ui/badge';
 import {
@@ -29,6 +30,11 @@ export function Agenda() {
     [reservas],
   );
 
+  const reservasBloqueantes = useMemo(
+    () => reservas.filter((r) => r.status === 'approved' || r.status === 'pending'),
+    [reservas],
+  );
+
   const reservasFiltradas = useMemo(() => {
     if (selectedRecurso === 'all') return reservasAprovadas;
     return reservasAprovadas.filter((r) => r.recursoId === selectedRecurso);
@@ -47,14 +53,16 @@ export function Agenda() {
 
   const formatDataLonga = (data: string) => {
     const [y, m, d] = data.split('-').map(Number);
-    return format(new Date(y, m - 1, d), "EEE, d MMM yyyy", { locale: ptBR });
+    return format(new Date(y, m - 1, d), 'EEE, d MMM yyyy', { locale: ptBR });
   };
 
   const proximaReserva = useMemo(() => {
     const now = new Date();
     return [...reservasFiltradas]
       .filter((r) => {
-        const start = parseISO(`${r.data}T${r.horaInicio.length === 5 ? r.horaInicio + ':00' : r.horaInicio}`);
+        const start = parseISO(
+          `${r.data}T${r.horaInicio.length === 5 ? r.horaInicio + ':00' : r.horaInicio}`,
+        );
         return start >= now;
       })
       .sort((a, b) => {
@@ -70,16 +78,16 @@ export function Agenda() {
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Agenda</h1>
           <p className="mt-1 text-gray-600">
-            Calendário de reservas aprovadas — dados em tempo real da API
+            Visualize horários ocupados e livres por recurso — reservas aprovadas e pendentes
           </p>
         </div>
         {proximaReserva && (
           <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm">
-            <Clock className="h-4 w-4 text-blue-600 shrink-0" />
+            <Clock className="h-4 w-4 shrink-0 text-blue-600" />
             <span className="text-gray-700">
               Próxima:{' '}
-              <strong className="text-gray-900">{proximaReserva.recurso}</strong>{' '}
-              · {formatDataLonga(proximaReserva.data)} às {proximaReserva.horaInicio}
+              <strong className="text-gray-900">{proximaReserva.recurso}</strong> ·{' '}
+              {formatDataLonga(proximaReserva.data)} às {proximaReserva.horaInicio}
             </span>
           </div>
         )}
@@ -87,7 +95,7 @@ export function Agenda() {
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-4 pt-6">
-          <Filter className="h-5 w-5 text-gray-400 shrink-0" />
+          <Filter className="h-5 w-5 shrink-0 text-gray-400" />
           <Select value={selectedRecurso} onValueChange={setSelectedRecurso}>
             <SelectTrigger className="w-[260px]">
               <SelectValue placeholder="Filtrar recurso" />
@@ -102,13 +110,20 @@ export function Agenda() {
             </SelectContent>
           </Select>
           <Badge variant="outline" className="font-normal">
-            {reservasFiltradas.length} reserva(s) aprovada(s)
+            {reservasFiltradas.length} aprovada(s)
+          </Badge>
+          <Badge variant="outline" className="font-normal border-amber-200 text-amber-800">
+            {reservasBloqueantes.filter((r) => r.status === 'pending').length} pendente(s)
           </Badge>
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="calendario" className="space-y-4">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+      <Tabs defaultValue="disponibilidade" className="space-y-4">
+        <TabsList className="grid w-full max-w-2xl grid-cols-3">
+          <TabsTrigger value="disponibilidade" className="gap-2">
+            <Timer className="h-4 w-4" />
+            Disponibilidade
+          </TabsTrigger>
           <TabsTrigger value="calendario" className="gap-2">
             <LayoutGrid className="h-4 w-4" />
             Calendário
@@ -118,6 +133,25 @@ export function Agenda() {
             Lista
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="disponibilidade" className="mt-0">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_380px]">
+            <ReservationCalendar
+              reservas={reservasBloqueantes}
+              month={month}
+              selectedDate={selectedDate}
+              onMonthChange={setMonth}
+              onSelectDate={setSelectedDate}
+            />
+            <div className="min-h-[28rem] xl:sticky xl:top-20 xl:self-start">
+              <ResourceAvailabilityTimeline
+                date={selectedDate}
+                reservas={reservasBloqueantes}
+                resourceId={selectedRecurso}
+              />
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="calendario" className="mt-0">
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">

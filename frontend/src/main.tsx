@@ -1,7 +1,16 @@
+import { createRoot } from 'react-dom/client';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import App from './app/App.tsx';
+import './styles/index.css';
 
-  import { createRoot } from "react-dom/client";
-  import App from "./app/App.tsx";
-  import "./styles/index.css";
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ?? '';
 
-  createRoot(document.getElementById("root")!).render(<App />);
-  
+const app = <App />;
+
+createRoot(document.getElementById('root')!).render(
+  googleClientId ? (
+    <GoogleOAuthProvider clientId={googleClientId}>{app}</GoogleOAuthProvider>
+  ) : (
+    app
+  ),
+);

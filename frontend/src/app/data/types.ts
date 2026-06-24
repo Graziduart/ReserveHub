@@ -8,7 +8,7 @@ export interface Usuario {
   /** ID do departamento na API (core) */
   departmentId: string;
   cargo: string;
-  perfil: 'administrador' | 'gestor' | 'funcionario';
+  perfil: 'administrador' | 'gestor' | 'colaborador';
   ativo: boolean;
   avatar?: string;
 }
@@ -18,7 +18,7 @@ export interface Departamento {
   nome: string;
   sigla: string;
   gestor: string;
-  totalFuncionarios: number;
+  totalColaboradores: number;
   ativo: boolean;
   /** Prioridade de governança (0–100). */
   priority?: number;

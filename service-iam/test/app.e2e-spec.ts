@@ -72,6 +72,16 @@ describe('service-iam (e2e)', () => {
     await request(app.getHttpServer()).get('/users/me').expect(401);
   });
 
+  it('POST /auth/login without body returns 400', async () => {
+    await request(app.getHttpServer()).post('/auth/login').send({}).expect(400);
+  });
+
+  it('GET /auth/idp returns config', async () => {
+    const res = await request(app.getHttpServer()).get('/auth/idp').expect(200);
+    expect(res.body).toHaveProperty('enabled');
+    expect(res.body).toHaveProperty('googleEnabled');
+  });
+
   afterEach(async () => {
     await app.close();
   });

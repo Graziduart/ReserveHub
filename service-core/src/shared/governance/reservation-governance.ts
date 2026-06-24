@@ -1,6 +1,58 @@
-import { ForbiddenException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ReservationStatus, Role } from '@prisma/client';
 import type { JwtUserPayload } from '../../auth/jwt-user.payload';
+
+/** RN-04: prazo mínimo antes do início para cancelamento (horas). */
+export const CANCEL_MIN_LEAD_HOURS = 1;
+
+const CANCEL_MIN_LEAD_MS = CANCEL_MIN_LEAD_HOURS * 60 * 60 * 1000;
+
+/** Verifica se ainda é permitido cancelar (≥ 1 h antes do início). */
+export function canCancelBeforeDeadline(
+  startDate: Date,
+  now: Date = new Date(),
+): boolean {
+  return startDate.getTime() - now.getTime() >= CANCEL_MIN_LEAD_MS;
+}
+
+/** RN-04: bloqueia cancelamento dentro do prazo mínimo. */
+export function assertCancelDeadline(
+  startDate: Date,
+  now: Date = new Date(),
+): void {
+  if (!canCancelBeforeDeadline(startDate, now)) {
+    throw new BadRequestException(
+      `Reservas só podem ser canceladas até ${CANCEL_MIN_LEAD_HOURS} hora(s) antes do início`,
+    );
+  }
+}
+
+export type ConflictWithPriority = {
+  id: string;
+  status: ReservationStatus;
+  departmentPriority: number;
+};
+
+/** Separa conflitos bloqueantes vs pendentes que podem ser sobrepostos por prioridade maior. */
+export function partitionConflictsByPriority(
+  requesterPriority: number,
+  conflicts: ConflictWithPriority[],
+): { blocking: ConflictWithPriority[]; overridablePending: ConflictWithPriority[] } {
+  const blocking: ConflictWithPriority[] = [];
+  const overridablePending: ConflictWithPriority[] = [];
+  for (const c of conflicts) {
+    if (c.status === ReservationStatus.APPROVED) {
+      blocking.push(c);
+    } else if (c.status === ReservationStatus.PENDING) {
+      if (requesterPriority > c.departmentPriority) {
+        overridablePending.push(c);
+      } else {
+        blocking.push(c);
+      }
+    }
+  }
+  return { blocking, overridablePending };
+}
 
 export function resolveBookingUserId(
   actor: JwtUserPayload,
@@ -19,7 +71,7 @@ export function resolveBookingUserId(
     return requestedUserId;
   }
   if (requestedUserId && requestedUserId !== actor.sub) {
-    throw new ForbiddenException('Employees can only book for themselves');
+    throw new ForbiddenException('Colaboradores só podem reservar para si mesmos');
   }
   return actor.sub;
 }

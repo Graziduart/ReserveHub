@@ -15,7 +15,6 @@ import {
   RegistroAuditoria,
   UsuarioCreatePayload,
 } from '../data/types';
-import { getStoredAuthUser } from '../lib/apiBase';
 import {
   approveReservation,
   cancelReservation,
@@ -30,6 +29,7 @@ import {
   listDepartments,
   listReservations,
   listResources,
+  getCurrentUser,
   listUsers,
   mapAuditEvent,
   mapDepartment,
@@ -43,7 +43,8 @@ import {
   updateUser,
   type ApiAuditEvent,
 } from '../lib/api';
-import { formatApiError, getStoredAccessToken, RESERVEHUB_AUTH_EVENT } from '../lib/apiBase';
+import { formatApiError, getStoredAccessToken, getStoredAuthUser, RESERVEHUB_AUTH_EVENT } from '../lib/apiBase';
+import { canViewAudit } from '../lib/auth-roles';
 import {
   buildNotifications,
   markAllNotificationsRead,
@@ -117,23 +118,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setError(null);
     setWarnings([]);
     try {
-      const coreResult = await Promise.all([
+      const role = getStoredAuthUser()?.role;
+      const usersPromise =
+        role === 'ADMIN' || role === 'MANAGER'
+          ? listUsers().catch(() => [] as Awaited<ReturnType<typeof listUsers>>)
+          : role === 'EMPLOYEE'
+            ? getCurrentUser()
+                .then((u) => [u])
+                .catch(() => {
+                  const auth = getStoredAuthUser();
+                  if (!auth?.departmentId) {
+                    return [] as Awaited<ReturnType<typeof listUsers>>;
+                  }
+                  return [
+                    {
+                      id: auth.id,
+                      name: auth.name,
+                      email: auth.email,
+                      role: auth.role as 'EMPLOYEE',
+                      departmentId: auth.departmentId,
+                      active: true,
+                    },
+                  ] as Awaited<ReturnType<typeof listUsers>>;
+                })
+            : Promise.resolve([] as Awaited<ReturnType<typeof listUsers>>);
+
+      const [apiDeps, apiRes, apiResvs, apiUsers] = await Promise.all([
         listDepartments(),
         listResources(),
         listReservations(),
-        listUsers(),
+        usersPromise,
       ]);
-      const [apiDeps, apiRes, apiResvs, apiUsers] = coreResult;
 
-      const nextWarnings: string[] = [];
       let apiAudit: ApiAuditEvent[] = [];
-      try {
-        apiAudit = await listAuditEvents(100);
-      } catch (e) {
-        nextWarnings.push(
-          formatApiError(e, 'service-audit') ||
-            'Serviço de auditoria indisponível — histórico pode estar incompleto.',
-        );
+      const nextWarnings: string[] = [];
+      if (canViewAudit()) {
+        try {
+          apiAudit = await listAuditEvents(100);
+        } catch (e) {
+          nextWarnings.push(
+            formatApiError(e, 'service-audit') ||
+              'Serviço de auditoria indisponível — histórico pode estar incompleto.',
+          );
+        }
       }
       setWarnings(nextWarnings);
 

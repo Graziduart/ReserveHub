@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { OAuth2Client } from 'google-auth-library';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../shared/database/prisma.service';
 import { verifyPassword, hashPassword } from '../shared/crypto/password-hash';
@@ -21,10 +23,19 @@ export type AuthTokensResponse = {
 
 @Injectable()
 export class AuthService {
+  private readonly googleClient: OAuth2Client | null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-  ) {}
+  ) {
+    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+    this.googleClient = clientId ? new OAuth2Client(clientId) : null;
+  }
+
+  isGoogleAuthEnabled(): boolean {
+    return Boolean(process.env.GOOGLE_CLIENT_ID?.trim());
+  }
 
   private accessExpiresSec(): number {
     return Number(process.env.JWT_ACCESS_EXPIRES_SEC ?? 900);
@@ -97,6 +108,56 @@ export class AuthService {
     return this.issueTokensForUser(row.id);
   }
 
+  async loginWithGoogle(idToken: string): Promise<AuthTokensResponse> {
+    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+    if (!clientId || !this.googleClient) {
+      throw new BadRequestException('Google Sign-In não está configurado no servidor');
+    }
+
+    let email: string | undefined;
+    let emailVerified = false;
+    try {
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken: idToken.trim(),
+        audience: clientId,
+      });
+      const payload = ticket.getPayload();
+      email = payload?.email?.trim().toLowerCase();
+      emailVerified = payload?.email_verified === true;
+    } catch {
+      throw new UnauthorizedException('Token Google inválido ou expirado');
+    }
+
+    if (!email || !emailVerified) {
+      throw new UnauthorizedException('Conta Google sem e-mail verificado');
+    }
+
+    const allowedDomain = process.env.GOOGLE_ALLOWED_DOMAIN?.trim().toLowerCase();
+    if (allowedDomain && !email.endsWith(`@${allowedDomain}`)) {
+      throw new UnauthorizedException(
+        `Domínio de e-mail não autorizado. Utilize @${allowedDomain}`,
+      );
+    }
+
+    const row = await this.prisma.user.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        active: true,
+      },
+    });
+    if (!row) {
+      throw new UnauthorizedException(
+        'Utilizador não registado no ReserveHub. Peça ao administrador para criar a sua conta.',
+      );
+    }
+
+    await this.prisma.user.update({
+      where: { id: row.id },
+      data: { lastLoginAt: new Date() },
+    });
+    return this.issueTokensForUser(row.id);
+  }
+
   async refresh(refreshTokenRaw: string): Promise<AuthTokensResponse> {
     const hash = hashRefreshToken(refreshTokenRaw);
     const rt = await this.prisma.refreshToken.findFirst({
@@ -134,21 +195,44 @@ export class AuthService {
     return { ok: true };
   }
 
-  /** Stub: em produção enviaria e-mail com token de reset (service-notifications). */
-  async forgotPassword(email: string): Promise<{ ok: boolean; message: string }> {
-    const normalized = email.trim().toLowerCase();
-    const row = await this.prisma.user.findUnique({
-      where: { email: normalized },
-      select: { id: true, active: true },
-    });
-    if (row?.active) {
-      // TODO: integrar service-notifications (SMTP/webhook)
+  getIdpConfig(): {
+    enabled: boolean;
+    provider?: string;
+    issuer?: string;
+    authorizationUrl?: string | null;
+    passwordResetUrl?: string | null;
+    googleEnabled?: boolean;
+    googleClientId?: string | null;
+  } {
+    const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || null;
+    const issuer = process.env.IDP_ISSUER?.trim();
+    if (!issuer) {
+      return {
+        enabled: false,
+        googleEnabled: Boolean(googleClientId),
+        googleClientId,
+      };
     }
     return {
-      ok: true,
-      message:
-        'Se o e-mail existir na base, receberá instruções para redefinir a palavra-passe.',
+      enabled: true,
+      provider: process.env.IDP_PROVIDER?.trim() || 'oidc',
+      issuer,
+      authorizationUrl: process.env.IDP_AUTHORIZATION_URL?.trim() || null,
+      passwordResetUrl: process.env.IDP_PASSWORD_RESET_URL?.trim() || null,
+      googleEnabled: Boolean(googleClientId),
+      googleClientId,
     };
+  }
+
+  /** Delegado ao gestor de identidade corporativo (Keycloak, Entra ID, etc.). */
+  forgotPassword(): never {
+    const cfg = this.getIdpConfig();
+    const hint = cfg.passwordResetUrl
+      ? ` Utilize: ${cfg.passwordResetUrl}`
+      : ' Contacte o administrador de TI.';
+    throw new BadRequestException(
+      `A recuperação de palavra-passe é feita pelo gestor de identidade corporativo.${hint}`,
+    );
   }
 
   async changePassword(

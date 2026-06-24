@@ -29,7 +29,7 @@ export function UsuarioModal({ open, onClose, onSave, usuario }: UsuarioModalPro
     email: '',
     departmentId: '',
     cargo: '',
-    perfil: 'funcionario' as Usuario['perfil'],
+    perfil: 'colaborador' as Usuario['perfil'],
     ativo: true,
     password: '',
   });
@@ -51,7 +51,7 @@ export function UsuarioModal({ open, onClose, onSave, usuario }: UsuarioModalPro
         email: '',
         departmentId: '',
         cargo: '',
-        perfil: 'funcionario',
+        perfil: 'colaborador',
         ativo: true,
         password: '',
       });
@@ -170,7 +170,7 @@ export function UsuarioModal({ open, onClose, onSave, usuario }: UsuarioModalPro
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="funcionario">Funcionário</SelectItem>
+                <SelectItem value="colaborador">Colaborador</SelectItem>
                 <SelectItem value="gestor">Gestor</SelectItem>
                 <SelectItem value="administrador">Administrador</SelectItem>
               </SelectContent>

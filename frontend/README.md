@@ -37,7 +37,7 @@ Sistema web corporativo interno para gestão de reservas de recursos com layout 
 - CRUD completo de usuários
 - Filtros por departamento e status
 - Busca por nome/email
-- Perfis: Administrador, Gestor, Funcionário
+- Perfis: Administrador, Gestor, Colaborador
 - Gestão de status ativo/inativo
 
 ### 6. **Departamentos**
@@ -163,7 +163,7 @@ src/
 
 - **Administrador**: Acesso total ao sistema
 - **Gestor**: Aprovações, visualização e gestão de sua área
-- **Funcionário**: Criar reservas, visualizar agenda
+- **Colaborador**: Criar reservas, visualizar agenda
 
 ## 📊 Dados Mockados
 

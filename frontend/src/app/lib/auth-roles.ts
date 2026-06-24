@@ -37,3 +37,7 @@ export function canViewAudit(): boolean {
   const r = currentAuthRole();
   return r === 'ADMIN' || r === 'MANAGER';
 }
+
+export function canViewHealthChecks(): boolean {
+  return currentAuthRole() === 'ADMIN';
+}

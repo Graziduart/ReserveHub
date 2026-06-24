@@ -1,0 +1,41 @@
+openapi: 3.0.3
+info:
+  title: ReserveHub Audit API
+  version: 1.0.0
+  description: Trilha de auditoria imutável alimentada por eventos RabbitMQ (MongoDB).
+servers:
+  - url: http://127.0.0.1:3003
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [Operações]
+      summary: Health check
+      security: []
+  /audit/events:
+    get:
+      tags: [Auditoria]
+      summary: Listar eventos recentes
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: routingKey
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: cursor
+          in: query
+          schema: { type: string, format: date-time }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

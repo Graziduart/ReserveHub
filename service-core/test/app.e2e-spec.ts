@@ -23,6 +23,13 @@ describe('service-core (e2e)', () => {
         department: {
           findMany: jest.fn().mockResolvedValue([]),
         },
+        reservation: {
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        user: {
+          findUnique: jest.fn().mockResolvedValue({ active: true }),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
       })
       .compile();
 
@@ -62,6 +69,43 @@ describe('service-core (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     expect(res.body).toEqual([]);
+  });
+
+  it('GET /resources without token returns 401', async () => {
+    await request(app.getHttpServer()).get('/resources').expect(401);
+  });
+
+  it('GET /reservations without token returns 401', async () => {
+    await request(app.getHttpServer()).get('/reservations').expect(401);
+  });
+
+  it('GET /reports/cost-allocation as EMPLOYEE returns 403', async () => {
+    const jwt = app.get(JwtService);
+    const token = await jwt.signAsync({
+      sub: 'emp-1',
+      email: 'emp@test.local',
+      role: Role.EMPLOYEE,
+      departmentId: 'dept-1',
+    });
+    await request(app.getHttpServer())
+      .get('/reports/cost-allocation')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
+  });
+
+  it('GET /reports/cost-allocation as ADMIN returns list', async () => {
+    const jwt = app.get(JwtService);
+    const token = await jwt.signAsync({
+      sub: 'admin-1',
+      email: 'admin@test.local',
+      role: Role.ADMIN,
+      departmentId: 'dept-1',
+    });
+    const res = await request(app.getHttpServer())
+      .get('/reports/cost-allocation')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(Array.isArray(res.body)).toBe(true);
   });
 
   afterEach(async () => {

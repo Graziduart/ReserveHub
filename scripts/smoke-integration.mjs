@@ -166,7 +166,7 @@ async function main() {
 
 
 
-  console.log('\n4) RBAC: EMPLOYEE não pode criar departamento…');
+  console.log('\n4) RBAC: colaborador não pode criar departamento…');
 
   const empLogin = await login('ana.silva@reservehub.local', adminPassword).catch(() => null);
 
@@ -190,11 +190,11 @@ async function main() {
 
     if (forbidden.status !== 403) {
 
-      throw new Error(`Expected 403 for EMPLOYEE create dept, got ${forbidden.status}`);
+      throw new Error(`Expected 403 for colaborador create dept, got ${forbidden.status}`);
 
     }
 
-    console.log('   EMPLOYEE → 403 OK');
+    console.log('   Colaborador → 403 OK');
 
   } else {
 
@@ -362,15 +362,21 @@ async function main() {
 
 
 
-  console.log('\n12) Cancelar reserva pendente (se existir)…');
+  console.log('\n12) Cancelar reserva pendente (se existir e fora do prazo RN-04)…');
 
   const allRes = await fetch(`${core}/reservations`, { headers: authHeaders });
 
   const reservations = await allRes.json();
 
+  const minLeadMs = 60 * 60 * 1000;
+
   const pendingOne = Array.isArray(reservations)
 
-    ? reservations.find((r) => r.status === 'PENDING')
+    ? reservations.find((r) => {
+        if (r.status !== 'PENDING') return false;
+        const start = new Date(r.startDate).getTime();
+        return start - Date.now() >= minLeadMs;
+      })
 
     : null;
 
@@ -386,7 +392,9 @@ async function main() {
 
     if (!cancel.ok) {
 
-      throw new Error(`Cancel failed ${cancel.status}`);
+      const body = await cancel.text();
+
+      throw new Error(`Cancel failed ${cancel.status}: ${body.slice(0, 200)}`);
 
     }
 
@@ -394,7 +402,25 @@ async function main() {
 
   } else {
 
-    console.log('   nenhuma pendente para cancelar');
+    const anyPending = Array.isArray(reservations)
+
+      ? reservations.find((r) => r.status === 'PENDING')
+
+      : null;
+
+    if (anyPending) {
+
+      console.log(
+
+        '   pendente encontrada mas dentro do prazo de 1h (RN-04) — cancelamento bloqueado, OK',
+
+      );
+
+    } else {
+
+      console.log('   nenhuma pendente para cancelar');
+
+    }
 
   }
 

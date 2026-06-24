@@ -15,9 +15,11 @@ import {
   applyReservationListScope,
   assertCanApproveOrReject,
   assertCanCancel,
+  assertCancelDeadline,
   assertManagerCanBookForUser,
   resolveBookingUserId,
 } from '../../shared/governance/reservation-governance';
+import { evaluatePriorityConflicts, type OverlapRow } from './reservation-priority';
 import { ReservationRequestDto } from '../dtos/ReservationRequest.dto';
 import { ReservationResponseDto } from '../dtos/ReservationResponse.dto';
 import { ReservationUpdateDto } from '../dtos/ReservationUpdate.dto';
@@ -92,76 +94,107 @@ export class ReservationService {
     );
   }
 
-  /** Conflitos: APPROVED bloqueia; PENDING pode ser cancelada se prioridade do departamento for maior. */
-  private async assertBookingAllowed(
+  /** Sobreposições activas (pendente ou aprovada) no mesmo recurso. */
+  private async findOverlappingReservations(
     resourceId: string,
     start: Date,
     end: Date,
-    requesterDepartmentId: string,
     excludeReservationId?: string,
-  ) {
-    const conflicts = await this.prisma.reservation.findMany({
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<OverlapRow[]> {
+    return db.reservation.findMany({
       where: {
         resourceId,
         id: excludeReservationId ? { not: excludeReservationId } : undefined,
         status: { in: blockingStatuses },
         AND: [{ startDate: { lt: end } }, { endDate: { gt: start } }],
       },
-      include: {
-        user: { include: { department: { select: { priority: true } } } },
+      select: {
+        id: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        user: {
+          select: {
+            name: true,
+            department: { select: { priority: true } },
+          },
+        },
       },
+      orderBy: { startDate: 'asc' },
     });
+  }
 
-    if (conflicts.length === 0) {
-      return;
+  private throwBookingConflict(overlaps: OverlapRow[]): never {
+    const first = overlaps[0];
+    const fmt = (d: Date) =>
+      d.toLocaleString('pt-PT', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    const period =
+      overlaps.length === 1
+        ? `${fmt(first.startDate)} – ${fmt(first.endDate)}`
+        : `${overlaps.length} reservas no período`;
+    const state =
+      first.status === ReservationStatus.APPROVED ? 'aprovada' : 'pendente';
+    throw new ConflictException(
+      `Este recurso já está reservado (${state}) de ${period}. Escolha outro horário ou outro dia.`,
+    );
+  }
+
+  /** Cancela reservas pendentes de menor prioridade para libertar o slot. */
+  private async cancelOverriddenPending(
+    ids: string[],
+    actor: JwtUserPayload,
+    requesterPriority: number,
+    tx: Prisma.TransactionClient,
+  ) {
+    for (const id of ids) {
+      const row = await tx.reservation.update({
+        where: { id },
+        data: {
+          status: ReservationStatus.CANCELLED,
+          approvedAt: null,
+          notes: 'Cancelada automaticamente: prioridade de departamento inferior.',
+        },
+        include: reservationInclude,
+      });
+      this.events.publish(CORE_EVENTS.RESERVATION_CANCELLED, {
+        reservation: toEventJson(row),
+        previousStatus: ReservationStatus.PENDING,
+        cancelledById: actor.sub,
+        cancelledByEmail: actor.email,
+        supersededByPriority: true,
+        requesterDepartmentPriority: requesterPriority,
+      });
     }
+  }
 
-    if (
-      conflicts.some((c) => c.status === ReservationStatus.APPROVED)
-    ) {
-      throw new ConflictException(
-        'Resource is already booked (approved reservation in this period)',
+  private async resolveOverlapsForBooking(
+    overlaps: OverlapRow[],
+    requesterPriority: number,
+    actor: JwtUserPayload,
+    tx: Prisma.TransactionClient,
+  ) {
+    const { blocking, overridable } = evaluatePriorityConflicts(
+      requesterPriority,
+      overlaps,
+    );
+    if (blocking.length > 0) {
+      this.throwBookingConflict(blocking);
+    }
+    if (overridable.length > 0) {
+      await this.cancelOverriddenPending(
+        overridable.map((o) => o.id),
+        actor,
+        requesterPriority,
+        tx,
       );
     }
-
-    const requesterDept = await this.prisma.department.findUnique({
-      where: { id: requesterDepartmentId },
-      select: { priority: true },
-    });
-    const requesterPriority = requesterDept?.priority ?? 0;
-
-    const pending = conflicts.filter(
-      (c) => c.status === ReservationStatus.PENDING,
-    );
-    const maxOther = Math.max(
-      ...pending.map((c) => c.user.department.priority),
-      -1,
-    );
-
-    if (requesterPriority > maxOther) {
-      for (const c of pending) {
-        const cancelled = await this.prisma.reservation.update({
-          where: { id: c.id },
-          data: {
-            status: ReservationStatus.CANCELLED,
-            rejectReason:
-              'Cancelada automaticamente: reserva de departamento com prioridade superior',
-            approvedAt: null,
-          },
-          include: reservationInclude,
-        });
-        this.events.publish(CORE_EVENTS.RESERVATION_CANCELLED, {
-          reservation: toEventJson(cancelled),
-          previousStatus: ReservationStatus.PENDING,
-          reason: 'department_priority_override',
-        });
-      }
-      return;
-    }
-
-    throw new ConflictException(
-      'Horário indisponível: existe reserva em conflito e a prioridade do seu departamento não permite substituir',
-    );
   }
 
   async create(
@@ -200,30 +233,41 @@ export class ReservationService {
     }
     this.assertResourceDepartmentAccess(actor, resource, user);
 
-    await this.assertBookingAllowed(
-      resource.id,
-      start,
-      end,
-      user.departmentId,
-    );
+    // Colaboradores passam sempre por aprovação (gestor/admin), mesmo em recursos sem flag.
+    const status =
+      actor.role === Role.EMPLOYEE || resource.requiresApproval
+        ? ReservationStatus.PENDING
+        : ReservationStatus.APPROVED;
 
-    const status = resource.requiresApproval
-      ? ReservationStatus.PENDING
-      : ReservationStatus.APPROVED;
+    const row = await this.prisma.$transaction(async (tx) => {
+      const overlaps = await this.findOverlappingReservations(
+        resource.id,
+        start,
+        end,
+        undefined,
+        tx,
+      );
+      await this.resolveOverlapsForBooking(
+        overlaps,
+        user.department.priority,
+        actor,
+        tx,
+      );
 
-    const row = await this.prisma.reservation.create({
-      data: {
-        userId,
-        resourceId: dto.resourceId,
-        startDate: start,
-        endDate: end,
-        notes: dto.notes,
-        status,
-        approvedAt: status === ReservationStatus.APPROVED ? new Date() : null,
-        approvedById:
-          status === ReservationStatus.APPROVED ? actor.sub : null,
-      },
-      include: reservationInclude,
+      return tx.reservation.create({
+        data: {
+          userId,
+          resourceId: dto.resourceId,
+          startDate: start,
+          endDate: end,
+          notes: dto.notes,
+          status,
+          approvedAt: status === ReservationStatus.APPROVED ? new Date() : null,
+          approvedById:
+            status === ReservationStatus.APPROVED ? actor.sub : null,
+        },
+        include: reservationInclude,
+      });
     });
     this.events.publish(CORE_EVENTS.RESERVATION_CREATED, {
       reservation: toEventJson(row),
@@ -344,14 +388,6 @@ export class ReservationService {
       dto.endDate !== undefined ? new Date(dto.endDate) : current.endDate;
     this.assertValidRange(start, end);
 
-    await this.assertBookingAllowed(
-      current.resourceId,
-      start,
-      end,
-      current.user.departmentId,
-      id,
-    );
-
     const timesChanged =
       dto.startDate !== undefined || dto.endDate !== undefined;
     let status = current.status;
@@ -362,18 +398,36 @@ export class ReservationService {
       approvedAt = null;
     }
 
-    const row = await this.prisma.reservation.update({
-      where: { id },
-      data: {
-        ...(dto.startDate !== undefined ? { startDate: start } : {}),
-        ...(dto.endDate !== undefined ? { endDate: end } : {}),
-        ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-        status,
-        approvedAt,
-        rejectReason: null,
-        approvedById: null,
-      },
-      include: reservationInclude,
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (timesChanged) {
+        const requester = await tx.user.findUnique({
+          where: { id: current.userId },
+          include: { department: true },
+        });
+        const priority = requester?.department?.priority ?? 0;
+        const overlaps = await this.findOverlappingReservations(
+          current.resourceId,
+          start,
+          end,
+          id,
+          tx,
+        );
+        await this.resolveOverlapsForBooking(overlaps, priority, actor, tx);
+      }
+
+      return tx.reservation.update({
+        where: { id },
+        data: {
+          ...(dto.startDate !== undefined ? { startDate: start } : {}),
+          ...(dto.endDate !== undefined ? { endDate: end } : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+          status,
+          approvedAt,
+          rejectReason: null,
+          approvedById: null,
+        },
+        include: reservationInclude,
+      });
     });
     this.events.publish(CORE_EVENTS.RESERVATION_UPDATED, {
       reservation: toEventJson(row),
@@ -406,28 +460,34 @@ export class ReservationService {
         'Only pending reservations can be approved',
       );
     }
-    await this.assertBookingAllowed(
-      current.resourceId,
-      current.startDate,
-      current.endDate,
-      current.user.departmentId,
-      id,
-    );
-
     const nextStage = current.approvalStage + 1;
     const fullyApproved = nextStage >= current.approvalLevelRequired;
-    const row = await this.prisma.reservation.update({
-      where: { id },
-      data: {
-        status: fullyApproved
-          ? ReservationStatus.APPROVED
-          : ReservationStatus.PENDING,
-        approvalStage: nextStage,
-        approvedAt: fullyApproved ? new Date() : null,
-        rejectReason: null,
-        approvedById: fullyApproved ? actor.sub : null,
-      },
-      include: reservationInclude,
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      const conflicts = await this.findOverlappingReservations(
+        current.resourceId,
+        current.startDate,
+        current.endDate,
+        id,
+        tx,
+      );
+      if (conflicts.length > 0) {
+        this.throwBookingConflict(conflicts);
+      }
+
+      return tx.reservation.update({
+        where: { id },
+        data: {
+          status: fullyApproved
+            ? ReservationStatus.APPROVED
+            : ReservationStatus.PENDING,
+          approvalStage: nextStage,
+          approvedAt: fullyApproved ? new Date() : null,
+          rejectReason: null,
+          approvedById: fullyApproved ? actor.sub : null,
+        },
+        include: reservationInclude,
+      });
     });
     if (fullyApproved) {
       this.events.publish(CORE_EVENTS.RESERVATION_APPROVED, {
@@ -506,6 +566,7 @@ export class ReservationService {
         'Only pending or approved reservations can be cancelled',
       );
     }
+    assertCancelDeadline(current.startDate);
 
     const row = await this.prisma.reservation.update({
       where: { id },
@@ -528,7 +589,17 @@ export class ReservationService {
     startDate: string,
     endDate: string,
     actor: JwtUserPayload,
-  ): Promise<{ available: boolean; canOverridePending: boolean }> {
+  ): Promise<{
+    available: boolean;
+    canOverridePending: boolean;
+    blocked: boolean;
+    conflicts: Array<{
+      status: ReservationStatus;
+      startDate: string;
+      endDate: string;
+      solicitante: string;
+    }>;
+  }> {
     const start = new Date(startDate);
     const end = new Date(endDate);
     this.assertValidRange(start, end);
@@ -540,42 +611,30 @@ export class ReservationService {
       throw new NotFoundException('Resource not found or inactive');
     }
 
-    const conflicts = await this.prisma.reservation.findMany({
-      where: {
-        resourceId,
-        status: { in: blockingStatuses },
-        AND: [{ startDate: { lt: end } }, { endDate: { gt: start } }],
-      },
-      include: {
-        user: { include: { department: { select: { priority: true } } } },
-      },
+    const requester = await this.prisma.user.findUnique({
+      where: { id: actor.sub },
+      include: { department: true },
     });
+    const requesterPriority = requester?.department?.priority ?? 0;
 
-    if (conflicts.length === 0) {
-      return { available: true, canOverridePending: false };
-    }
-
-    if (
-      conflicts.some((c) => c.status === ReservationStatus.APPROVED)
-    ) {
-      return { available: false, canOverridePending: false };
-    }
-
-    const actorDept = await this.prisma.department.findUnique({
-      where: { id: actor.departmentId },
-      select: { priority: true },
-    });
-    const actorPriority = actorDept?.priority ?? 0;
-    const maxPending = Math.max(
-      ...conflicts
-        .filter((c) => c.status === ReservationStatus.PENDING)
-        .map((c) => c.user.department.priority),
-      -1,
+    const overlaps = await this.findOverlappingReservations(
+      resourceId,
+      start,
+      end,
     );
 
+    const evaluation = evaluatePriorityConflicts(requesterPriority, overlaps);
+
     return {
-      available: actorPriority > maxPending,
-      canOverridePending: actorPriority > maxPending,
+      available: evaluation.available || evaluation.canOverridePending,
+      canOverridePending: evaluation.canOverridePending,
+      blocked: evaluation.blocked,
+      conflicts: overlaps.map((c) => ({
+        status: c.status,
+        startDate: c.startDate.toISOString(),
+        endDate: c.endDate.toISOString(),
+        solicitante: c.user.name,
+      })),
     };
   }
 }
