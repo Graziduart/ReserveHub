@@ -94,7 +94,7 @@ export function Login() {
   const afterLogin = redirectAfterLogin(location.state?.from);
 
   const [activeProfile, setActiveProfile] = useState<DemoProfile>(DEMO_PROFILES[0]);
-  const [email, setEmail] = useState(DEMO_PROFILES[0].email);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');

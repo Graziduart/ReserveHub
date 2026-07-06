@@ -91,12 +91,16 @@ function RelatoriosPage() {
   );
 
   const handleExportPdf = async () => {
+    if (exportingPdf) return;
     setExportingPdf(true);
     try {
-      await exportCostReportPdf({ rows, source, totais });
+      const chartImages = getCostReportChartImages(rows);
+      await exportCostReportPdf({ rows, source, totais, chartImages });
       toast.success('PDF exportado com sucesso');
-    } catch {
-      toast.error('Não foi possível gerar o PDF');
+    } catch (err) {
+      console.error('exportCostReportPdf', err);
+      const detail = err instanceof Error ? err.message : 'Erro desconhecido';
+      toast.error(`Não foi possível gerar o PDF (${detail})`);
     } finally {
       setExportingPdf(false);
     }
